@@ -1,0 +1,93 @@
+graph TD
+    %% Global Styling
+    classDef data fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#000
+    classDef cnn fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#000
+    classDef transformer fill:#f3e5f5,stroke:#4a148c,stroke-width:2px,color:#000
+    classDef fusion fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px,color:#000
+    classDef output fill:#ffebee,stroke:#b71c1c,stroke-width:2px,color:#000
+
+    subgraph "1. Preprocessing & ROI Extraction"
+        A[(Raw Chest X-Ray)] -->|CLAHE + Augmentation| B[Normalized Image]
+        B --> C{U-Net Lung Segmentation}
+        C -->|Masking| D[(Segmented Lung ROI)]
+    end
+
+    subgraph "2. Dual Feature Extraction Backbones"
+        D -->|Local Edge & Texture| E1[MobileNetV2 CNN]
+        D -->|Global Semantics| E2[Swin-Tiny Transformer]
+        
+        E1 --> F1[Stage 1: High Res]
+        E1 --> F2[Stage 2: Mid Res]
+        E1 --> F3[Stage 3: Mid Res]
+        E1 --> F4[Stage 4: Low Res / High Semantic]
+        
+        E2 --> F_Swin[(Swin Patch Tokens)]
+    end
+
+    subgraph "3. Feature Pyramid Network (FPN)"
+        F4 -->|1x1 Conv| P4
+        F3 -->|1x1 Conv| L3
+        F2 -->|1x1 Conv| L2
+        F1 -->|1x1 Conv| L1
+        
+        P4 -->|Upsample + Add| P3
+        L3 --> P3
+        
+        P3 -->|Upsample + Add| P2
+        L2 --> P2
+        
+        P2 -->|Upsample + Add| P1
+        L1 --> P1
+    end
+
+    subgraph "4. Token Projection & Regularization"
+        P1 --> T1[BN + GELU + Dropout]
+        P2 --> T2[BN + GELU + Dropout]
+        P3 --> T3[BN + GELU + Dropout]
+        P4 --> T4[BN + GELU + Dropout]
+        
+        T1 --> C1[(CNN Tokens S1)]
+        T2 --> C2[(CNN Tokens S2)]
+        T3 --> C3[(CNN Tokens S3)]
+        T4 --> C4[(CNN Tokens S4)]
+    end
+
+    subgraph "5. Hierarchical Multi-Token Cross Attention"
+        C1 -->|Query| CA1((Cross Attention Block 1))
+        C2 -->|Query| CA2((Cross Attention Block 2))
+        C3 -->|Query| CA3((Cross Attention Block 3))
+        C4 -->|Query| CA4((Cross Attention Block 4))
+        
+        F_Swin -->|Keys & Values| CA1
+        F_Swin -->|Keys & Values| CA2
+        F_Swin -->|Keys & Values| CA3
+        F_Swin -->|Keys & Values| CA4
+        
+        CA1 --> A1[(Attended Tokens 1)]
+        CA2 --> A2[(Attended Tokens 2)]
+        CA3 --> A3[(Attended Tokens 3)]
+        CA4 --> A4[(Attended Tokens 4)]
+    end
+
+    subgraph "6. Transformer Fusion & Classification"
+        A1 --> TF[Transformer Encoder Fusion Block]
+        A2 --> TF
+        A3 --> TF
+        A4 --> TF
+        F_Swin --> TF
+        
+        TF -->|Fused CLS Token| CH[Classification Head<br/>Double Dropout + GELU]
+        CH --> OUT{{Final Output: Healthy / Non-TB / TB}}
+    end
+
+    subgraph "7. Autonomous Evaluation & Explainability"
+        OUT -.-> EVAL[Evaluator: MCC, PR-AUC, Sensitivity]
+        OUT -.-> EXPLAIN[Explainability: Grad-CAM++ & Rollout]
+    end
+
+    %% Apply Styles
+    class A,D,F_Swin,C1,C2,C3,C4,A1,A2,A3,A4 data;
+    class E1,F1,F2,F3,F4 cnn;
+    class E2,CA1,CA2,CA3,CA4,TF transformer;
+    class P1,P2,P3,P4,L1,L2,L3,T1,T2,T3,T4 fusion;
+    class OUT output;
